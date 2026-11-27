@@ -15,14 +15,31 @@ export default function EmployeeTimeLogsView({ token }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [legacyApi, setLegacyApi] = useState(false);
 
   const load = async () => {
     if (!token) return;
     try {
       const response = await fetch(`${API_BASE}/v1/work-logs/my`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Unable to load assigned tasks.');
-      setTasks(data.tasks || []); setLogs(data.logs || []); setError('');
+      if (response.ok) {
+        const data = await response.json();
+        setLegacyApi(false); setTasks(data.tasks || []); setLogs(data.logs || []); setError('');
+      } else if (response.status === 404) {
+        const [profileResponse, tasksResponse] = await Promise.all([
+          fetch(`${API_BASE}/users/profile`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_BASE}/tasks`, { headers: { Authorization: `Bearer ${token}` } })
+        ]);
+        const profile = await profileResponse.json();
+        const allTasks = await tasksResponse.json();
+        if (!profileResponse.ok || !tasksResponse.ok) throw new Error('Unable to load assigned tasks.');
+        const userId = profile._id || profile.id;
+        const assignedTasks = (Array.isArray(allTasks) ? allTasks : []).filter(task => String(task.assigneeId?._id || task.assigneeId) === String(userId));
+        const assignedLogs = assignedTasks.flatMap(task => (task.workLogs || []).filter(log => String(log.author?._id || log.author) === String(userId)).map(log => ({ ...log, taskId: task.taskId, taskTitle: task.title, taskMongoId: task._id }))).sort((a, b) => new Date(b.loggedAt || b.createdAt) - new Date(a.loggedAt || a.createdAt));
+        setLegacyApi(true); setTasks(assignedTasks); setLogs(assignedLogs); setError('');
+      } else {
+        const data = await response.json();
+        throw new Error(data.error || 'Unable to load assigned tasks.');
+      }
     } catch (err) { setError(err.message); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, [token]);
@@ -40,7 +57,9 @@ export default function EmployeeTimeLogsView({ token }) {
     if (!canSubmit) return;
     setSubmitting(true); setError('');
     try {
-      const response = await fetch(`${API_BASE}/v1/work-logs/my`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ taskId: form.taskId, hours: Number(form.hours), note: form.note }) });
+      const endpoint = legacyApi ? `${API_BASE}/tasks/${form.taskId}/worklogs` : `${API_BASE}/v1/work-logs/my`;
+      const payload = legacyApi ? { hours: Number(form.hours), note: form.note, description: form.note } : { taskId: form.taskId, hours: Number(form.hours), note: form.note };
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to log working hours.');
       setForm({ taskId: '', hours: '', note: '' }); await load(); toast.success('Working hours logged successfully.');
