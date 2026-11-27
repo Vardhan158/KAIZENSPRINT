@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -157,6 +158,13 @@ export default function App() {
     if (token) {
       fetchAllData();
     }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const socket = io(SOCKET_URL, { auth: { token } });
+    socket.on('work_log_logged', fetchAllData);
+    return () => { socket.off('work_log_logged', fetchAllData); socket.disconnect(); };
   }, [token]);
 
   const handleLogout = () => {

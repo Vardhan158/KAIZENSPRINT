@@ -227,11 +227,18 @@ const addWorkLog = async (req, res) => {
     const { hours, description, note } = req.body;
     const task = await Task.findById(id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
+    if (String(req.user?.role).toLowerCase() === 'employee' && String(task.assigneeId) !== String(req.user.id)) {
+      return res.status(403).json({ error: 'You can only log hours against your own assigned tasks.' });
+    }
+    const parsedHours = Number(hours);
+    if (!Number.isFinite(parsedHours) || parsedHours < 0.5 || parsedHours > 24) {
+      return res.status(400).json({ error: 'Working hours must be between 0.5 and 24.' });
+    }
     task.workLogs = task.workLogs || [];
     const workDesc = String(note || description || '').trim();
     task.workLogs.push({
       author: req.user.id,
-      hours: Number(hours) || 1,
+      hours: parsedHours,
       note: workDesc,
       description: workDesc,
       loggedAt: new Date()
