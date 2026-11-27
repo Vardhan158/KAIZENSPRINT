@@ -12,6 +12,8 @@ const bugSchema = new mongoose.Schema({
   severity: { type: String, enum: ['Minor', 'Major', 'Critical', 'Blocker'], default: 'Major' },
   environment: { type: String, enum: ['Development', 'Testing', 'Production'], default: 'Testing' },
   screenshots: [String],
+  resolutionNotes: { type: String, default: '' },
+  evidence: [{ type: String }],
   workflowStatus: {
     type: String,
     enum: ['Reported', 'Triaged', 'Assigned', 'In Progress', 'Retesting', 'Closed', 'Reopened'],

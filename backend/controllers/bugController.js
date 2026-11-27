@@ -2,10 +2,13 @@ const mongoose = require('mongoose');
 const Bug = require('../models/Bug');
 const User = require('../models/User');
 const { sendNotification, logAudit } = require('../utils/notifier');
+const { uploadToCloudinary } = require('../infrastructure/storage/cloudinaryService');
 
 const getBugs = async (req, res) => {
   try {
-    const bugs = await Bug.find()
+    const isAdmin = String(req.user?.role || '').toLowerCase() === 'admin';
+    const visibility = isAdmin ? {} : { $or: [{ assignedTo: req.user.id }, { reportedBy: req.user.id }] };
+    const bugs = await Bug.find(visibility)
       .populate('assignedTo', 'name email avatar designation')
       .populate('reportedBy', 'name email avatar')
       .populate('projectId')
@@ -19,7 +22,7 @@ const getBugs = async (req, res) => {
 
 const createBug = async (req, res) => {
   try {
-    const { title, projectId, taskId, description, stepsToReproduce, expectedResult, actualResult, severity, environment } = req.body;
+    const { title, projectId, taskId, description, stepsToReproduce, expectedResult, actualResult, severity, environment, assignedTo } = req.body;
     if (!title || !projectId || !description) {
       return res.status(400).json({ error: 'Title, project and description are required.' });
     }
@@ -39,6 +42,16 @@ const createBug = async (req, res) => {
       reportedBy: req.user.id,
       workflowStatus: 'Reported'
     };
+
+    if (assignedTo && String(req.user.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can assign bugs.' });
+    }
+    if (assignedTo && mongoose.isValidObjectId(assignedTo)) {
+      const assignee = await User.findOne({ _id: assignedTo, role: { $in: ['employee', 'EMPLOYEE'] } });
+      if (!assignee) return res.status(400).json({ error: 'Assigned user must be a registered employee.' });
+      bugData.assignedTo = assignee._id;
+      bugData.workflowStatus = 'Assigned';
+    }
 
     if (taskId && mongoose.isValidObjectId(taskId)) {
       bugData.taskId = taskId;
@@ -108,6 +121,9 @@ const updateBugStatus = async (req, res) => {
     if (!isAdmin && !isAssignee && !isReporter) {
       return res.status(403).json({ error: 'Unauthorized: Only admins or assigned developers can modify bug statuses.' });
     }
+    if (!isAdmin && workflowStatus && !['In Progress', 'Retesting'].includes(workflowStatus)) {
+      return res.status(403).json({ error: 'Employees can only move assigned bugs to In Progress or Retesting.' });
+    }
 
     if (workflowStatus && bug.workflowStatus === 'Reported' && workflowStatus === 'Closed') {
       return res.status(400).json({ error: 'Workflow violation: Cannot bypass intermediate workflow stages from Reported directly to Closed.' });
@@ -115,7 +131,11 @@ const updateBugStatus = async (req, res) => {
 
     const updates = {};
     if (workflowStatus) updates.workflowStatus = workflowStatus;
-    if (assignedTo && mongoose.isValidObjectId(assignedTo)) updates.assignedTo = assignedTo;
+    if (assignedTo && isAdmin && mongoose.isValidObjectId(assignedTo)) {
+      const assignee = await User.findOne({ _id: assignedTo, role: { $in: ['employee', 'EMPLOYEE'] } });
+      if (!assignee) return res.status(400).json({ error: 'Assigned user must be a registered employee.' });
+      updates.assignedTo = assignee._id;
+    }
 
     const updated = await Bug.findByIdAndUpdate(id, updates, { new: true })
       .populate('assignedTo', 'name email avatar designation')
@@ -150,4 +170,20 @@ const updateBugStatus = async (req, res) => {
   }
 };
 
-module.exports = { getBugs, createBug, updateBugStatus };
+const updateAssignedBug = async (req, res) => {
+  try {
+    const bug = await Bug.findById(req.params.id);
+    if (!bug) return res.status(404).json({ error: 'Bug not found' });
+    if (String(bug.assignedTo || '') !== String(req.user.id)) return res.status(403).json({ error: 'Only the assigned employee can update this bug.' });
+    const updates = {};
+    if (req.body.workflowStatus && ['In Progress', 'Retesting'].includes(req.body.workflowStatus)) updates.workflowStatus = req.body.workflowStatus;
+    if (req.body.resolutionNotes !== undefined) updates.resolutionNotes = String(req.body.resolutionNotes).trim();
+    if (req.file) updates.$push = { evidence: await uploadToCloudinary(req.file.path, 'kaizensprint_bug_evidence') };
+    const updated = await Bug.findByIdAndUpdate(req.params.id, updates, { new: true, ...(updates.$push ? {} : {}) })
+      .populate('assignedTo', 'name email avatar designation').populate('reportedBy', 'name email avatar').populate('projectId').populate('taskId', 'title taskId');
+    if (req.io) req.io.emit('bug_updated', updated);
+    res.json(updated);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+module.exports = { getBugs, createBug, updateBugStatus, updateAssignedBug };

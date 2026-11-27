@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import { Bug, Calendar, Eye } from 'lucide-react';
 import toast from '../../utils/toast';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000/api';
 const labelClass = 'block text-xs font-semibold text-[#475569] uppercase tracking-wide mb-1.5';
 const inputClass = 'w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-[#0F172A] focus:border-[#2563EB] focus:outline-none focus:ring-4 focus:ring-blue-100';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://kaizensprint.onrender.com';
 
 const severityStyle = {
   Minor: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -33,6 +35,10 @@ export default function EmployeeBugsView({ currentUser, bugs = [], projects = []
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [selectedBugDetails, setSelectedBugDetails] = useState(null);
+  const [bugTab, setBugTab] = useState('reported');
+  const [resolutionNotes, setResolutionNotes] = useState('');
+  const [evidence, setEvidence] = useState(null);
+  const [bugUpdating, setBugUpdating] = useState(false);
 
   useEffect(() => {
     if (projects.length > 0 && (!bugForm.projectId || !projects.some(p => p._id === bugForm.projectId))) {
@@ -42,6 +48,31 @@ export default function EmployeeBugsView({ currentUser, bugs = [], projects = []
 
   const myUserId = currentUser?.id || currentUser?._id;
   const myBugs = bugs.filter(b => String(b.reportedBy?._id || b.reportedBy) === String(myUserId));
+  const assignedBugs = bugs.filter(b => String(b.assignedTo?._id || b.assignedTo) === String(myUserId));
+  const visibleBugs = bugTab === 'assigned' ? assignedBugs : myBugs;
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const socket = io(SOCKET_URL, { auth: { token } });
+    const refresh = () => fetchAllData?.();
+    socket.on('bug_created', refresh); socket.on('bug_updated', refresh);
+    return () => { socket.off('bug_created', refresh); socket.off('bug_updated', refresh); socket.disconnect(); };
+  }, [token, fetchAllData]);
+
+  const updateAssignedBug = async (workflowStatus) => {
+    if (!selectedBugDetails) return;
+    setBugUpdating(true);
+    try {
+      const body = new FormData();
+      body.append('workflowStatus', workflowStatus);
+      body.append('resolutionNotes', resolutionNotes);
+      if (evidence) body.append('evidence', evidence);
+      const res = await fetch(`${API_BASE}/bugs/${selectedBugDetails._id}/work`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}` }, body });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to update assigned bug.');
+      setSelectedBugDetails(data); setEvidence(null); fetchAllData?.(); toast.success('Bug update submitted for Admin verification.');
+    } catch (err) { toast.error(err.message); } finally { setBugUpdating(false); }
+  };
 
   const handleBugSubmit = async (e) => {
     e.preventDefault();
@@ -207,16 +238,18 @@ export default function EmployeeBugsView({ currentUser, bugs = [], projects = []
         <div>
           <h3 className="text-lg font-bold text-[#0F172A] flex items-center space-x-2">
             <Bug className="w-5 h-5 text-rose-600" />
-            <span>My Reported Bugs ({myBugs.length})</span>
+            <span>{bugTab === 'assigned' ? `Assigned Bugs (${assignedBugs.length})` : `My Reported Bugs (${myBugs.length})`}</span>
           </h3>
           <p className="text-xs text-[#475569] mt-0.5">Defect tickets reported by your account and persisted in MongoDB Atlas.</p>
         </div>
 
-        {myBugs.length === 0 ? (
-          <div className="p-12 text-center text-xs text-[#475569]">No bug tickets reported yet.</div>
+        <div className="flex gap-2 border-b border-slate-200 pb-3"><button type="button" onClick={() => setBugTab('reported')} className={`rounded-xl px-3 py-2 text-xs font-semibold ${bugTab === 'reported' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'text-slate-500'}`}>My Reported Bugs</button><button type="button" onClick={() => setBugTab('assigned')} className={`rounded-xl px-3 py-2 text-xs font-semibold ${bugTab === 'assigned' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'text-slate-500'}`}>Assigned Bugs</button></div>
+
+        {visibleBugs.length === 0 ? (
+          <div className="p-12 text-center text-xs text-[#475569]">{bugTab === 'assigned' ? 'No bugs are currently assigned to you.' : 'No bug tickets reported yet.'}</div>
         ) : (
           <div className="space-y-4">
-            {myBugs.map((b, i) => (
+            {visibleBugs.map((b, i) => (
               <div key={b._id || i} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3 shadow-xs">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                   <div className="flex items-center space-x-3">
@@ -306,6 +339,17 @@ export default function EmployeeBugsView({ currentUser, bugs = [], projects = []
                 </div>
               </div>
             </div>
+
+            {String(selectedBugDetails.assignedTo?._id || selectedBugDetails.assignedTo) === String(myUserId) && (
+              <div className="border-t border-slate-200 pt-4 space-y-3">
+                <label className={labelClass}>Resolution Notes</label>
+                <textarea rows={3} value={resolutionNotes} onChange={e => setResolutionNotes(e.target.value)} className={inputClass} placeholder="Describe the fix and verification details..." />
+                <label className={labelClass}>Supporting Evidence</label>
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setEvidence(e.target.files?.[0] || null)} className="w-full text-xs" />
+                <div className="flex flex-wrap gap-2"><button type="button" disabled={bugUpdating} onClick={() => updateAssignedBug('In Progress')} className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60">Mark In Progress</button><button type="button" disabled={bugUpdating} onClick={() => updateAssignedBug('Retesting')} className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60">Submit for Admin Verification</button></div>
+                {selectedBugDetails.resolutionNotes && <p className="text-xs text-slate-600">Current notes: {selectedBugDetails.resolutionNotes}</p>}
+              </div>
+            )}
 
             <div className="flex justify-end pt-4 border-t border-slate-200">
               <button
