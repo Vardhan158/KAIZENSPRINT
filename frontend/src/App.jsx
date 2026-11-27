@@ -287,7 +287,7 @@ export default function App() {
                               <Route path="/tasks/:id" element={<TaskDetailView tasks={tasks} users={users} token={token} fetchAllData={fetchAllData} />} />
                               <Route path="/workload" element={<EmployeesWorkloadView users={users} workloadData={workloadData} token={token} fetchAllData={fetchAllData} />} />
                               <Route path="/workload/:employeeId" element={<EmployeeWorkloadDetailView token={token} />} />
-                              <Route path="/standups" element={<DailyProgressView progressLogs={progressLogs} tasks={tasks} currentUser={currentUser} token={token} fetchAllData={fetchAllData} />} />
+                              <Route path="/standups" element={<DailyProgressView currentUser={currentUser} token={token} />} />
                               <Route path="/bugs" element={<BugTrackerView bugs={bugs} users={users} currentUser={currentUser} token={token} fetchAllData={fetchAllData} onReportBug={() => setShowBugModal(true)} />} />
                               <Route path="/calendar" element={<CalendarTimelineView tasks={tasks} sprints={sprints} projects={projects} users={users} token={token} fetchAllData={fetchAllData} />} />
                               <Route path="/timeline" element={<SprintTimelineView tasks={tasks} sprints={sprints} projects={projects} token={token} fetchAllData={fetchAllData} />} />
