@@ -121,6 +121,7 @@ const updateBugStatus = async (req, res) => {
     if (!isAdmin && !isAssignee && !isReporter) {
       return res.status(403).json({ error: 'Unauthorized: Only admins or assigned developers can modify bug statuses.' });
     }
+    if (!isAdmin && !isAssignee) return res.status(403).json({ error: 'Only the assigned employee can modify bug status.' });
     if (!isAdmin && workflowStatus && !['In Progress', 'Retesting'].includes(workflowStatus)) {
       return res.status(403).json({ error: 'Employees can only move assigned bugs to In Progress or Retesting.' });
     }
