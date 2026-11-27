@@ -75,7 +75,7 @@ export default function Sidebar({ currentUser, handleLogout }) {
             <SidebarItem icon={<Kanban className="w-4 h-4" />} label="Sprint Board" to="/employee/board" active={pathname === '/employee/board'} collapsed={collapsed} />
             <SidebarItem icon={<Send className="w-4 h-4" />} label="Daily Standup" to="/employee/standups" active={pathname === '/employee/standups'} collapsed={collapsed} />
             <SidebarItem icon={<Clock className="w-4 h-4" />} label="Time Logs" to="/employee/time-logs" active={pathname === '/employee/time-logs'} collapsed={collapsed} />
-            <SidebarItem icon={<Bug className="w-4 h-4" />} label="Report Bug" to="/employee/bugs" active={pathname === '/employee/bugs'} collapsed={collapsed} />
+            <SidebarItem icon={<Bug className="w-4 h-4" />} label="Bug Management" to="/employee/bugs" active={pathname === '/employee/bugs'} collapsed={collapsed} />
             <SidebarItem icon={<CalendarIcon className="w-4 h-4" />} label="Calendar" to="/employee/calendar" active={pathname === '/employee/calendar'} collapsed={collapsed} />
             <SidebarItem icon={<BarChart3 className="w-4 h-4" />} label="My Reports" to="/employee/reports" active={pathname === '/employee/reports'} collapsed={collapsed} />
             <SidebarItem icon={<User className="w-4 h-4" />} label="My Profile" to="/employee/profile" active={pathname === '/employee/profile'} collapsed={collapsed} />
