@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Clock, MessageSquare, AlertTriangle, Send, Calendar, User, Search, Filter, X } from 'lucide-react';
+import { io } from 'socket.io-client';
 import toast from '../utils/toast';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000/api';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 
 export default function DailyProgressView({ progressLogs = [], tasks = [], users = [], projects = [], sprints = [], currentUser, token, fetchAllData }) {
   const [employeeFilter, setEmployeeFilter] = useState('All');
@@ -18,6 +20,19 @@ export default function DailyProgressView({ progressLogs = [], tasks = [], users
   const safeProjects = Array.isArray(projects) ? projects : [];
   const safeSprints = Array.isArray(sprints) ? sprints : [];
 
+  // Filter sprints based on selected project
+  const availableSprints = projectFilter === 'All'
+    ? safeSprints
+    : safeSprints.filter(s => {
+        const pId = s.projectId?._id || s.projectId;
+        return pId && String(pId) === String(projectFilter);
+      });
+
+  const handleProjectChange = (e) => {
+    setProjectFilter(e.target.value);
+    setSprintFilter('All');
+  };
+
   const handleClearFilters = () => {
     setEmployeeFilter('All');
     setProjectFilter('All');
@@ -25,6 +40,16 @@ export default function DailyProgressView({ progressLogs = [], tasks = [], users
     setDateFilter('');
     toast.success('All filters cleared.');
   };
+
+  // Real-time socket auto-refresh listener
+  useEffect(() => {
+    if (!token) return;
+    const socket = io(SOCKET_URL, { auth: { token } });
+    socket.on('progress_logged', () => {
+      if (fetchAllData) fetchAllData();
+    });
+    return () => socket.disconnect();
+  }, [token, fetchAllData]);
 
   const filteredLogs = safeLogs.filter(log => {
     const userId = log.userId?._id || log.userId;
@@ -111,7 +136,7 @@ export default function DailyProgressView({ progressLogs = [], tasks = [], users
             <span className="font-semibold text-[#475569]">Project:</span>
             <select
               value={projectFilter}
-              onChange={e => setProjectFilter(e.target.value)}
+              onChange={handleProjectChange}
               className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0F172A] font-medium focus:outline-none focus:border-[#2563EB]"
             >
               <option value="All">All Projects</option>
@@ -129,7 +154,7 @@ export default function DailyProgressView({ progressLogs = [], tasks = [], users
               className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0F172A] font-medium focus:outline-none focus:border-[#2563EB]"
             >
               <option value="All">All Sprints</option>
-              {safeSprints.map(s => (
+              {availableSprints.map(s => (
                 <option key={s._id} value={s._id}>{s.name}</option>
               ))}
             </select>
@@ -180,73 +205,84 @@ export default function DailyProgressView({ progressLogs = [], tasks = [], users
           </div>
         ) : (
           <div className="space-y-4 max-h-[750px] overflow-y-auto pr-2">
-            {filteredLogs.map(log => (
-              <div key={log._id} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-3 shadow-xs">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center space-x-3">
-                    <img
-                      src={log.userId?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
-                      alt="avatar"
-                      className="w-10 h-10 rounded-full object-cover ring-2 ring-indigo-500/20"
-                    />
-                    <div>
-                      <h4 className="text-sm font-bold text-[#0F172A]">{log.userId?.name || 'Team Member'}</h4>
-                      <p className="text-[10px] text-[#475569]">{log.userId?.designation || 'Engineer'} • Submission Date: {log.date}</p>
+            {filteredLogs.map(log => {
+              const relTask = safeTasks.find(t => String(t._id) === String(log.relatedTaskId?._id || log.relatedTaskId));
+              const projObj = relTask ? safeProjects.find(p => String(p._id) === String(relTask.projectId?._id || relTask.projectId)) : null;
+              const sprintObj = relTask ? safeSprints.find(s => String(s._id) === String(relTask.sprintId?._id || relTask.sprintId)) : null;
+
+              return (
+                <div key={log._id} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                    <div className="flex items-center space-x-3">
+                      <img
+                        src={log.userId?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                        alt="avatar"
+                        className="w-10 h-10 rounded-full object-cover ring-2 ring-indigo-500/20"
+                      />
+                      <div>
+                        <h4 className="text-sm font-bold text-[#0F172A]">{log.userId?.name || 'Team Member'}</h4>
+                        <p className="text-[10px] text-[#475569]">
+                          {log.userId?.designation || 'Engineer'}
+                          {projObj && ` • Project: ${projObj.name}`}
+                          {sprintObj && ` • Sprint: ${sprintObj.name}`}
+                          {' '}• Submission Date: {log.date}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1 rounded-full font-bold">{log.hoursWorked || 8} hrs logged</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-1">
+                      <span className="font-bold text-emerald-700 uppercase block">Completed Work (Yesterday):</span>
+                      <p className="text-[#0F172A] font-normal leading-relaxed">{log.yesterday}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-1">
+                      <span className="font-bold text-[#2563EB] uppercase block">Planned Work (Today):</span>
+                      <p className="text-[#0F172A] font-normal leading-relaxed">{log.today}</p>
                     </div>
                   </div>
-                  <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1 rounded-full font-bold">{log.hoursWorked || 8} hrs logged</span>
+
+                  {log.relatedTaskId && (
+                    <div className="text-xs bg-blue-50 text-[#2563EB] px-3 py-1.5 rounded-lg border border-blue-200 inline-block font-medium">
+                      📌 Related Task: <strong>{relTask?.taskId || 'Task'}: {relTask?.title || log.relatedTaskId.title || 'Task'}</strong>
+                    </div>
+                  )}
+
+                  <div className="text-xs bg-slate-100 text-slate-800 p-3.5 rounded-xl border border-slate-200 space-y-1">
+                    <span className="font-bold text-slate-700 uppercase block">Blockers:</span>
+                    <p className="text-[#0F172A] font-medium">{log.blockers || 'None'}</p>
+                  </div>
+
+                  {/* Admin Response */}
+                  {log.adminResponse ? (
+                    <div className="mt-2 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-1">
+                      <span className="text-[10px] font-bold text-[#2563EB] uppercase block">Admin Resolution Response:</span>
+                      <p className="text-xs text-[#0F172A] font-normal">{log.adminResponse}</p>
+                    </div>
+                  ) : currentUser?.role === 'admin' && (
+                    <div className="mt-2 pt-2 border-t border-slate-200 flex space-x-2">
+                      <input
+                        type="text"
+                        placeholder="Type response to blocker..."
+                        value={adminResponseText[log._id] || ''}
+                        onChange={e => setAdminResponseText({ ...adminResponseText, [log._id]: e.target.value })}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
+                      />
+                      <button
+                        type="button"
+                        disabled={respondingId === log._id}
+                        onClick={() => handleAdminResponse(log._id)}
+                        className="rounded-xl bg-[#2563EB] hover:bg-indigo-700 text-white px-4 py-2 text-xs font-semibold shadow-sm whitespace-nowrap flex items-center space-x-1 cursor-pointer disabled:opacity-60 transition"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>{respondingId === log._id ? 'Sending…' : 'Respond'}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-1">
-                    <span className="font-bold text-emerald-700 uppercase block">Completed Work (Yesterday):</span>
-                    <p className="text-[#0F172A] font-normal leading-relaxed">{log.yesterday}</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-1">
-                    <span className="font-bold text-[#2563EB] uppercase block">Planned Work (Today):</span>
-                    <p className="text-[#0F172A] font-normal leading-relaxed">{log.today}</p>
-                  </div>
-                </div>
-
-                {log.relatedTaskId && (
-                  <div className="text-xs bg-blue-50 text-[#2563EB] px-3 py-1.5 rounded-lg border border-blue-200 inline-block font-medium">
-                    📌 Related Task: <strong>{log.relatedTaskId.taskId || 'Task'}: {log.relatedTaskId.title}</strong>
-                  </div>
-                )}
-
-                <div className="text-xs bg-slate-100 text-slate-800 p-3.5 rounded-xl border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-700 uppercase block">Blockers:</span>
-                  <p className="text-[#0F172A] font-medium">{log.blockers || 'None'}</p>
-                </div>
-
-                {/* Admin Response */}
-                {log.adminResponse ? (
-                  <div className="mt-2 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-1">
-                    <span className="text-[10px] font-bold text-[#2563EB] uppercase block">Admin Resolution Response:</span>
-                    <p className="text-xs text-[#0F172A] font-normal">{log.adminResponse}</p>
-                  </div>
-                ) : currentUser?.role === 'admin' && (
-                  <div className="mt-2 pt-2 border-t border-slate-200 flex space-x-2">
-                    <input
-                      type="text"
-                      placeholder="Type response to blocker..."
-                      value={adminResponseText[log._id] || ''}
-                      onChange={e => setAdminResponseText({ ...adminResponseText, [log._id]: e.target.value })}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
-                    />
-                    <button
-                      type="button"
-                      disabled={respondingId === log._id}
-                      onClick={() => handleAdminResponse(log._id)}
-                      className="rounded-xl bg-[#2563EB] hover:bg-indigo-700 text-white px-4 py-2 text-xs font-semibold shadow-sm whitespace-nowrap flex items-center space-x-1 cursor-pointer disabled:opacity-60 transition"
-                    >
-                      <Send className="w-3 h-3" />
-                      <span>{respondingId === log._id ? 'Sending…' : 'Respond'}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
