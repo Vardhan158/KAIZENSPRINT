@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Sparkles, AlertCircle, ArrowRight, Lock, Mail, Eye, EyeOff, CheckCircle2, Kanban, Circle, ShieldCheck } from 'lucide-react';
 import toast from './utils/toast';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://kaizensprint.onrender.com/api';
 
 export default function Login({ setToken, setCurrentUser }) {
   const [loginEmail, setLoginEmail] = useState('');

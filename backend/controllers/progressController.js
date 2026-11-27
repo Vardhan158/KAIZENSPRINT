@@ -22,6 +22,10 @@ const getProgress = async (req, res) => {
 
 const createProgress = async (req, res) => {
   try {
+    if (String(req.user?.role || '').toLowerCase() === 'admin') {
+      return res.status(403).json({ error: 'Admins cannot submit daily standups. Standup submission is restricted to employees.' });
+    }
+
     const { yesterday, today, blockers, relatedTaskId, hoursWorked, date } = req.body;
     const targetDate = date || new Date().toISOString().split('T')[0];
 
@@ -68,7 +72,7 @@ const createProgress = async (req, res) => {
 
 const respondToBlocker = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+    if (String(req.user?.role || '').toLowerCase() !== 'admin') return res.status(403).json({ error: 'Admin access required' });
     const { id } = req.params;
     const { adminResponse } = req.body;
 

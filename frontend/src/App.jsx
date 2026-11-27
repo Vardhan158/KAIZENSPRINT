@@ -44,8 +44,8 @@ import CreateBugModal from './modals/CreateBugModal';
 import CreateSprintModal from './modals/CreateSprintModal';
 import TaskDetailModal from './modals/TaskDetailModal';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000/api';
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://kaizensprint.onrender.com/api';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://kaizensprint.onrender.com';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('jira_token') || '');
